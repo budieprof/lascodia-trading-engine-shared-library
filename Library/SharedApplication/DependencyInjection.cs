@@ -156,16 +156,19 @@ public static class DependencyInjection
     }
     public static void ConfigureAppServices(this IServiceCollection services, Assembly assembly)
     {
-        services.AddAutoMapper(assembly);
+        services.AddAutoMapper(cfg => cfg.AddMaps(assembly));
         services.AddValidatorsFromAssembly(assembly);
         services.AddMediatR(assembly);
         services.AddTransient(typeof(IPipelineBehavior<,>), typeof(UnhandledExceptionBehaviour<,>));
         services.AddTransient(typeof(IPipelineBehavior<,>), typeof(ValidationBehaviour<,>));
         services.AddTransient(typeof(IPipelineBehavior<,>), typeof(PerformanceBehaviour<,>));
-        services.AddScoped(provider => new MapperConfiguration(cfg =>
+        services.AddScoped(provider =>
         {
-            cfg.AddProfile(new MappingProfile(provider.GetRequiredService<IHttpContextAccessor>(), assembly));
-        }).CreateMapper());
+            var expression = new MapperConfigurationExpression();
+            expression.AddProfile(new MappingProfile(provider.GetRequiredService<IHttpContextAccessor>(), assembly));
+            var loggerFactory = provider.GetRequiredService<ILoggerFactory>();
+            return new MapperConfiguration(expression, loggerFactory).CreateMapper();
+        });
 
         services.AddTransient<IIntegrationEventService>(s =>
         {
