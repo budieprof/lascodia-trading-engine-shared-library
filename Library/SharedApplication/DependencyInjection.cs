@@ -267,6 +267,12 @@ public static class DependencyInjection
                 configuration.GetConnectionString(connectionString) ?? "", s => s.CommandTimeout((int)TimeSpan.FromMinutes(10).TotalSeconds).MigrationsAssembly(typeof(T).Assembly.FullName).EnableRetryOnFailure());
     }
 
+    public static DbContextOptionsBuilder SetPostgresDB<T>(this DbContextOptionsBuilder options, IConfiguration configuration, string connectionString = "WriteDbConnection")
+    {
+        return options.UseNpgsql(
+                configuration.GetConnectionString(connectionString) ?? "", s => s.CommandTimeout((int)TimeSpan.FromMinutes(10).TotalSeconds).MigrationsAssembly(typeof(T).Assembly.FullName).EnableRetryOnFailure());
+    }
+
 
     private static IEnumerable<IntegrationEvent> PreprocessAuditables(IDbContext context, IHttpContextAccessor httpContextAccessor)
     {
