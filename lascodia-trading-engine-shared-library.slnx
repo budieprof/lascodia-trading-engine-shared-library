@@ -1,0 +1,15 @@
+<Solution>
+  <Folder Name="/EventBus/">
+    <Project Path="EventBus/EventBus/EventBus.csproj" />
+    <Project Path="EventBus/EventBusKafka/EventBusKafka.csproj" />
+    <Project Path="EventBus/EventBusRabbitMQ/EventBusRabbitMQ.csproj" />
+    <Project Path="EventBus/IntegrationEventLogEF/IntegrationEventLogEF.csproj" />
+  </Folder>
+  <Folder Name="/Library/">
+    <Project Path="Library/SharedAPI/SharedAPI.csproj" />
+    <Project Path="Library/SharedApplication/SharedApplication.csproj" />
+    <Project Path="Library/SharedDomain/SharedDomain.csproj" />
+    <Project Path="Library/SharedInfrastructure/SharedInfrastructure.csproj" />
+    <Project Path="Library/SharedLibrary/SharedLibrary.csproj" />
+  </Folder>
+</Solution>
