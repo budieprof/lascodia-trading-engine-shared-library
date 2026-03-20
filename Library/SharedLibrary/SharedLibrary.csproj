@@ -14,7 +14,7 @@
     <PackageReference Include="AutoMapper" Version="16.1.1" />
     <PackageReference Include="BenchmarkDotNet" Version="0.14.0" />
     <PackageReference Include="EPPlus" Version="7.4.1" />
-    <PackageReference Include="iTextSharp" Version="5.5.13.4" />
+    <PackageReference Include="itext7" Version="9.5.0" />
     <PackageReference Include="MediatR.Extensions.Microsoft.DependencyInjection" Version="11.1.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.4" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.0" />

@@ -13,9 +13,12 @@ using System.Xml.Serialization;
 using Newtonsoft.Json;
 using OfficeOpenXml;
 using OfficeOpenXml.Style;
-using iTextSharp.text;
-using iTextSharp.text.pdf;
-using Document = iTextSharp.text.Document;
+using iText.Kernel.Pdf;
+using iText.Layout;
+using iText.Layout.Element;
+using iText.Layout.Properties;
+using iText.Kernel.Font;
+using iText.IO.Font.Constants;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using System.Diagnostics.CodeAnalysis;
@@ -1416,74 +1419,69 @@ public static class Helper
     /// <returns>A byte array representing the PDF data.</returns>
     public static byte[] ExportTableToPdf<T>(this List<T> value)
     {
-        using (MemoryStream ms = new MemoryStream())
+        using var ms = new MemoryStream();
+        using (var writer = new PdfWriter(ms))
         {
-            using (Document document = new Document(PageSize.A4, 15.5f, 15.5f, 20f, 20f))
-            {
-                PdfWriter writer = PdfWriter.GetInstance(document, ms);
-                writer.CloseStream = false;
-                document.AddAuthor("");
-                document.Open();
+            writer.SetCloseStream(false);
+            using var pdfDoc  = new PdfDocument(writer);
+            using var document = new Document(pdfDoc, iText.Kernel.Geom.PageSize.A4);
+            document.SetMargins(20f, 15.5f, 20f, 15.5f);
 
-                Type type = typeof(T);
-                var props = type.GetProperties();
-                var names = props.Select(p => p.Name);
-                PdfPTable table = new PdfPTable(names.Count());
-                var tableContentFont = FontFactory.GetFont(FontFactory.HELVETICA, 8);
-                // Set Header Rows
+            Type type = typeof(T);
+            var props = type.GetProperties();
+
+            var headerFont  = PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD);
+            var contentFont = PdfFontFactory.CreateFont(StandardFonts.HELVETICA);
+
+            var table = new Table(props.Length).UseAllAvailableWidth();
+
+            // Header row
+            foreach (var prop in props)
+            {
+                var cell = new Cell()
+                    .Add(new Paragraph(prop.GetPropertyDescription().ToUpper())
+                        .SetFont(headerFont)
+                        .SetFontSize(7))
+                    .SetPadding(5)
+                    .SetTextAlignment(TextAlignment.CENTER)
+                    .SetVerticalAlignment(VerticalAlignment.BOTTOM);
+                table.AddHeaderCell(cell);
+            }
+
+            // Data rows
+            foreach (var obj in value)
+            {
                 foreach (var prop in props)
                 {
-                    PdfPCell cell = new PdfPCell(new Phrase(prop.GetPropertyDescription().ToUpper(), FontFactory.GetFont(FontFactory.HELVETICA_BOLD, 7)))
-                    {
-                        Padding = 5,
-                        VerticalAlignment = (Element.ALIGN_BOTTOM),
-                        HorizontalAlignment = (Element.ALIGN_CENTER)
-                    };
-                    table.AddCell(cell);
+                    PropertyInfo? pi = obj?.GetType().GetProperty(prop.Name, BindingFlags.Public | BindingFlags.Instance);
+                    string text = pi is { CanRead: true } ? $"{pi.GetValue(obj)}" : "";
+                    table.AddCell(CreateTableCell(text, contentFont));
                 }
-                foreach (var obj in value)
-                {
-                    foreach (var name in names)
-                    {
-                        PropertyInfo? prop = obj?.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.Instance);
-                        if (null != prop && prop.CanRead)
-                        {
-                            var val = prop.GetValue(obj);
-                            table.AddCell(GetTableCell(new Phrase($"{val}", tableContentFont)));
-                        }
-                    }
-                }
-                table.HorizontalAlignment = Element.ALIGN_CENTER;
-                table.WidthPercentage = 100;
-                document.Add(table);
             }
-            return ms.ToArray();
+
+            document.Add(table);
         }
+
+        return ms.ToArray();
     }
 
     /// <summary>
-    /// Creates a PdfPCell with specified content and alignment.
+    /// Creates a PDF table cell with specified content and alignment.
     /// </summary>
-    /// <param name="phrase">The content of the cell.</param>
-    /// <param name="align">The alignment of the cell content.</param>
-    /// <param name="color">The color of the cell content.</param>
-    /// <returns>A PdfPCell with the specified content and alignment.</returns>
-    public static PdfPCell GetTableCell(Phrase phrase, int align = Element.ALIGN_CENTER, BaseColor color = null)
+    public static Cell CreateTableCell(
+        string text,
+        PdfFont? font = null,
+        TextAlignment alignment = TextAlignment.CENTER)
     {
-        if (color == null)
-        {
-            color = BaseColor.BLACK;
-        }
+        var paragraph = new Paragraph(text).SetFontSize(8).SetTextAlignment(alignment);
+        if (font is not null) paragraph.SetFont(font);
 
-        PdfPCell defcell = new PdfPCell(phrase)
-        {
-            Padding = 2,
-            VerticalAlignment = (Element.ALIGN_BOTTOM),
-            HorizontalAlignment = (align),
-            PaddingBottom = 3
-        };
-        // defcell.PaddingTop = 1;
-        return defcell;
+        return new Cell()
+            .Add(paragraph)
+            .SetPadding(2)
+            .SetPaddingBottom(3)
+            .SetVerticalAlignment(VerticalAlignment.BOTTOM)
+            .SetTextAlignment(alignment);
     }
 
     /// <summary>
