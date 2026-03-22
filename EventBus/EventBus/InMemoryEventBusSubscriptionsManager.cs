@@ -98,8 +98,7 @@ public partial class InMemoryEventBusSubscriptionsManager : IEventBusSubscriptio
 
         if (_handlers[eventName].Exists(s => s.HandlerType == handlerType))
         {
-            throw new ArgumentException(
-                $"Handler Type {handlerType.Name} already registered for '{eventName}'", nameof(handlerType));
+            return; // Already registered — skip silently to support dual auto/manual subscription.
         }
 
         // Warn when approaching limits (at 80%)
