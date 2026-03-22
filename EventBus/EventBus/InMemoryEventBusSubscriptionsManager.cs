@@ -58,7 +58,8 @@ public partial class InMemoryEventBusSubscriptionsManager : IEventBusSubscriptio
         if(handler.GetInterfaces().AsEnumerable().Any(i =>
                     i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IIntegrationEventHandler<>)))
         {
-            Type[] args = handler.GetInterfaces()[0].GenericTypeArguments;
+            Type[] args = handler.GetInterfaces().First(i =>
+                i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IIntegrationEventHandler<>)).GenericTypeArguments;
             var evt = args[0];
             var eventName = evt.Name;
 
