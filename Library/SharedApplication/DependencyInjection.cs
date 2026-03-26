@@ -179,7 +179,12 @@ public static class DependencyInjection
         });
         services.AutoRegisterEventHandler(assembly);
         services.AutoRegisterBackgroundJobs(assembly);
-        services.AddControllers();
+        services.AddControllers()
+            .AddJsonOptions(options =>
+            {
+                options.JsonSerializerOptions.Converters.Add(
+                    new System.Text.Json.Serialization.JsonStringEnumConverter());
+            });
 
         services.AddEndpointsApiExplorer();
         
