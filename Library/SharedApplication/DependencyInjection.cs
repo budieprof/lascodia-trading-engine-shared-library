@@ -184,6 +184,7 @@ public static class DependencyInjection
             {
                 options.JsonSerializerOptions.Converters.Add(
                     new System.Text.Json.Serialization.JsonStringEnumConverter());
+                options.JsonSerializerOptions.Converters.Add(new TimeSpanJsonConverter());
             });
 
         services.AddEndpointsApiExplorer();
@@ -354,4 +355,23 @@ public static class DependencyInjection
         }
     }
 
+}
+
+[ExcludeFromCodeCoverage]
+public class TimeSpanJsonConverter : System.Text.Json.Serialization.JsonConverter<TimeSpan>
+{
+    public override TimeSpan Read(ref System.Text.Json.Utf8JsonReader reader, Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
+    {
+        var s = reader.GetString();
+        if (TimeSpan.TryParseExact(s, @"hh\:mm\:ss", null, out var ts))
+            return ts;
+        if (TimeSpan.TryParse(s, out ts))
+            return ts;
+        throw new System.Text.Json.JsonException($"Cannot convert \"{s}\" to TimeSpan.");
+    }
+
+    public override void Write(System.Text.Json.Utf8JsonWriter writer, TimeSpan value, System.Text.Json.JsonSerializerOptions options)
+    {
+        writer.WriteStringValue(value.ToString(@"hh\:mm\:ss"));
+    }
 }
