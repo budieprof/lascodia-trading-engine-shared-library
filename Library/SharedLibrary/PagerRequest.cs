@@ -59,6 +59,7 @@ public class PagerRequest<TResponse> : IRequest<TResponse>, IMapFrom<Pager>
 
     public void Mapping(Profile profile, IHttpContextAccessor httpContextAssessor)
     {
-        profile.CreateMap(GetType(), typeof(Pager));
+        profile.CreateMap(GetType(), typeof(Pager))
+            .ForMember(nameof(Pager.TotalItemCount), opt => opt.Ignore());
     }
 }
