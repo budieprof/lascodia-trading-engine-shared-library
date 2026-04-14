@@ -130,17 +130,53 @@ public static class DependencyInjection
             .ToList();
         foreach (var handlerType in types)
         {
+            // Skip types the caller has already registered explicitly. This matters when
+            // a handler is also an IHostedService (e.g. a worker that receives events):
+            // the application layer registers it as Singleton and forwards both the
+            // hosted-service and the IIntegrationEventHandler<T> role to the same
+            // instance. If we always AddTransient here, the transient descriptor
+            // coexists with the caller's singleton; depending on container semantics,
+            // the event bus resolves a fresh transient per dispatch, writes into its
+            // private state (e.g. bounded channel), and disposes it at scope close
+            // while the hosted-service singleton waits forever on empty state.
+            // Skipping already-registered handlers lets the caller's intended
+            // lifetime win without the shared library needing to know about it.
+            if (services.Any(d => d.ServiceType == handlerType))
+                continue;
+
             services.AddTransient(handlerType);
         }
     }
 
     public static void AutoRegisterBackgroundJobs(this IServiceCollection services, Assembly assembly)
     {
-        var test = assembly.GetExportedTypes().ToList();
-
-        var types = assembly.GetExportedTypes().Where(t => t.GetInterfaces().Any(i => i == typeof(IHostedService))).ToList();
+        var types = assembly.GetExportedTypes()
+            .Where(t => !t.IsAbstract
+                     && !t.IsInterface
+                     && t.GetInterfaces().Any(i => i == typeof(IHostedService)))
+            .ToList();
         foreach (var handlerType in types)
         {
+            // Skip types the caller has already registered explicitly — either as
+            // the concrete type (Singleton<T>) or as IHostedService with this
+            // implementation type or implementation factory. Without this guard, a
+            // worker that the application layer wires up as
+            // AddSingleton<T>() + AddHostedService(sp => sp.GetRequiredService<T>())
+            // ends up with TWO IHostedService descriptors: the factory one returning
+            // the singleton, and the auto-registered one whose impl type the DI
+            // container creates via Activator — producing a second, orphan instance
+            // that runs ExecuteAsync in parallel with the intended singleton.
+            bool alreadyRegistered =
+                services.Any(d => d.ServiceType == handlerType)
+                || services.Any(d =>
+                    d.ServiceType == typeof(IHostedService)
+                    && (d.ImplementationType == handlerType
+                        || d.ImplementationInstance?.GetType() == handlerType
+                        || (d.ImplementationFactory != null
+                            && d.ImplementationFactory.Method.ReturnType == handlerType)));
+            if (alreadyRegistered)
+                continue;
+
             services.AddSingleton(typeof(IHostedService), handlerType);
         }
     }
