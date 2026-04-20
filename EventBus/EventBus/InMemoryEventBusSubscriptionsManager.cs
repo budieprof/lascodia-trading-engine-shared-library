@@ -142,16 +142,25 @@ public partial class InMemoryEventBusSubscriptionsManager : IEventBusSubscriptio
 
     public void RemoveSubscription(Type handlerType)
     {
-        if (handlerType.GetInterfaces().AsEnumerable().Any(i =>
-                    i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IIntegrationEventHandler<>)))
-        {
-            Type[] args = handlerType.GetInterfaces()[0].GenericTypeArguments;
-            var eventType = args[0];
-            var eventName = eventType.Name;
+        // Resolve the matching IIntegrationEventHandler<T> interface explicitly. Previously
+        // this indexed GetInterfaces()[0] unconditionally — which throws IndexOutOfRange at
+        // shutdown for handlers whose first interface is non-generic (IDisposable etc.).
+        // The shutdown-path call chain is: DependencyInjection.AutoUnconfigureEventHandler
+        // → EventBusRabbitMQ.Unsubscribe → RemoveSubscription — so the bug manifested as a
+        // CRIT log on every graceful container stop.
+        var matchingInterface = handlerType.GetInterfaces().FirstOrDefault(i =>
+            i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IIntegrationEventHandler<>));
 
-            var subToRemove = DoFindSubscriptionToRemove(eventName, handlerType);
-            DoRemoveHandler(eventName, subToRemove);
-        }
+        if (matchingInterface is null) return;
+
+        Type[] args = matchingInterface.GenericTypeArguments;
+        if (args.Length == 0) return;
+
+        var eventType = args[0];
+        var eventName = eventType.Name;
+
+        var subToRemove = DoFindSubscriptionToRemove(eventName, handlerType);
+        DoRemoveHandler(eventName, subToRemove);
     }
 
 
