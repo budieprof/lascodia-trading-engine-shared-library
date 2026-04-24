@@ -5,6 +5,7 @@ public enum EventStateEnum
     NotPublished = 0,
     InProgress = 1,
     Published = 2,
-    PublishedFailed = 3
+    PublishedFailed = 3,
+    DeadLettered = 4
 }
 
