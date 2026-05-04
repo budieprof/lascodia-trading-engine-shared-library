@@ -40,6 +40,21 @@ public class PagerRequest<TResponse> : IRequest<TResponse>, IMapFrom<Pager>
     public int LimiterSpacing { get; set; } = 1;
     [JsonIgnore]
     public int PageLink { get; set; } = 5;
+    /// <summary>
+    /// Server-side sort column. Maps to a DTO/entity property name via the
+    /// query handler's safelist; values outside the safelist are ignored
+    /// (the handler's default order is used). Required so sortable tables
+    /// in the admin UI consult the database rather than only sorting the
+    /// current in-memory page.
+    /// </summary>
+    public string? SortBy { get; set; }
+
+    /// <summary>
+    /// Sort direction — <c>"asc"</c> or <c>"desc"</c> (case-insensitive).
+    /// Defaults to <c>"desc"</c> when only <see cref="SortBy"/> is set.
+    /// </summary>
+    public string? SortDirection { get; set; }
+
     [DefaultValue("{}")]
     public string? Filter { get; set; } = "{}";
     public dynamic? FilterObj
