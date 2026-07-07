@@ -227,7 +227,36 @@ public class EventBusRabbitMQ : IEventBus, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "----- ERROR Processing message \"{Message}\"", message);
+            // E-36 fix: never silently ack a failed handler. The previous unconditional
+            // BasicAck below turned the bus into at-most-once delivery — handlers that
+            // re-throw to request a requeue were fiction; failed events vanished.
+            //
+            // Policy without a DLX: exactly one redelivery attempt.
+            //   - First failure  (Redelivered == false) -> BasicNack with requeue: true.
+            //     RabbitMQ redelivers the message with Redelivered == true.
+            //   - Second failure (Redelivered == true)  -> ack below, but log at Error as a
+            //     "parking-lot" record (full payload + routing key) so the drop is loud and
+            //     forensically recoverable, instead of an infinite redelivery hot-loop.
+            //
+            // Upgrade path (preferred long-term): declare the queue with a dead-letter
+            // exchange (x-dead-letter-exchange argument on QueueDeclare in
+            // CreateConsumerChannel), replace the requeue:false branch's ack with
+            // BasicNack(requeue: false) so RabbitMQ routes the poison message to the DLX
+            // queue, and consume/alert on that queue instead of relying on log scraping.
+            // That change requires re-declaring the existing durable queue (queue args are
+            // immutable), so it is a coordinated migration rather than a drop-in edit.
+            if (!eventArgs.Redelivered)
+            {
+                _logger.LogWarning(ex,
+                    "----- ERROR Processing message (first attempt) for event {EventName}; nacking with requeue for one redelivery. Message: \"{Message}\"",
+                    eventName, message);
+                _consumerChannel.BasicNack(eventArgs.DeliveryTag, multiple: false, requeue: true);
+                return;
+            }
+
+            _logger.LogError(ex,
+                "----- PARKING-LOT: message for event {EventName} failed after redelivery and is being dropped (no DLX configured). Payload: \"{Message}\"",
+                eventName, message);
         }
         _consumerChannel.BasicAck(eventArgs.DeliveryTag, multiple: false);
     }
