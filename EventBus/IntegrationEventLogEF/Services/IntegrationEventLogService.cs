@@ -73,6 +73,21 @@ public class IntegrationEventLogService<T> : IIntegrationEventLogService, IDispo
 
     private async Task UpdateEventStatus(Guid eventId, EventStateEnum status)
     {
+        // The status transitions (InProgress/Published/Failed) are STANDALONE writes that
+        // happen AFTER the domain transaction has already committed — they must not run
+        // under a transaction. But this scoped context is the same instance SaveEventAsync
+        // enlisted into the domain transaction via UseTransaction(); that (now committed +
+        // disposed) transaction stays attached as Database.CurrentTransaction. Left attached,
+        // SaveChangesAsync throws under the retrying execution strategy
+        // ("NpgsqlRetryingExecutionStrategy does not support user-initiated transactions"),
+        // which made the primary publish path fail for EVERY event and routed all of them
+        // through the outbox retry sweep. Detach the stale transaction so the execution
+        // strategy owns the unit of work for this standalone save. We only CLEAR the
+        // reference (UseTransaction(null)); the underlying transaction is owned + already
+        // disposed by the caller's ResilientTransaction, so we must not dispose it here.
+        if (_integrationEventLogContext.Database.CurrentTransaction is not null)
+            await _integrationEventLogContext.Database.UseTransactionAsync((System.Data.Common.DbTransaction?)null);
+
         var eventLogEntry = await _integrationEventLogContext.IntegrationEventLogs.FirstOrDefaultAsync(ie => ie.EventId == eventId);
         if(eventLogEntry != null)
         {
@@ -85,7 +100,7 @@ public class IntegrationEventLogService<T> : IIntegrationEventLogService, IDispo
 
             await _integrationEventLogContext.SaveChangesAsync();
         }
-        
+
     }
 
     protected virtual void Dispose(bool disposing)
