@@ -130,16 +130,36 @@ public class CurrentUserService : ICurrentUserService
 
             if (jwtToken != null)
             {
+                // Read every claim defensively. These were First() calls, which threw
+                // InvalidOperationException on any absent claim — surfacing as HTTP 500
+                // rather than 401/403, from a method whose whole contract is "or null if
+                // not found". Worse, the throw only reached requests that RESOLVE the
+                // current user (anything writing an audit row), so a GET succeeded while
+                // the matching PUT 500'd on the identical token — which reads as a
+                // permissions problem and sends you hunting through roles.
+                var id = Claim(jwtToken, "passportId");
+
+                // No identity claim ⇒ we cannot say who this is. Fall through to null,
+                // the same result as an unauthenticated request, instead of inventing a
+                // blank-identity user that would sign audit rows as nobody.
+                if (string.IsNullOrWhiteSpace(id)) return null;
+
                 return new UserVM
                 {
-                    Id = jwtToken.Claims.First(x => x.Type == "passportId").Value,
-                    FirstName = jwtToken.Claims.First(s => s.Type == "firstName").Value,
-                    LastName = jwtToken.Claims.First(s => s.Type == "lastName").Value,
-                    Email = jwtToken.Claims.First(s => s.Type == "email").Value,
-                    PhoneNumber = jwtToken.Claims.First(s => s.Type == "mobileNo").Value
+                    Id = id,
+                    // Profile decoration — never gates anything, so an absent claim is
+                    // an empty field rather than a failed request.
+                    FirstName = Claim(jwtToken, "firstName"),
+                    LastName = Claim(jwtToken, "lastName"),
+                    Email = Claim(jwtToken, "email"),
+                    PhoneNumber = Claim(jwtToken, "mobileNo")
                 };
             }
         }
         return null;
     }
+
+    /// <summary>Value of the first claim of this type, or empty when the token carries none.</summary>
+    private static string Claim(JwtSecurityToken token, string type)
+        => token.Claims.FirstOrDefault(c => c.Type == type)?.Value ?? string.Empty;
 }
