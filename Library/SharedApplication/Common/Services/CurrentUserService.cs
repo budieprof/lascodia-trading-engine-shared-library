@@ -1,18 +1,27 @@
 using Microsoft.AspNetCore.Http;
 using Lascodia.Trading.Engine.SharedApplication.Common.Interfaces;
 using Lascodia.Trading.Engine.SharedApplication.Common.Models.AccessModel;
-using Lascodia.Trading.Engine.SharedLibrary;
 using System.Diagnostics.CodeAnalysis;
 using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 
 namespace Lascodia.Trading.Engine.SharedApplication.Common.Services;
 
 /// <summary>
-/// Provides services to access the current user's information from the HTTP context.
+/// Resolves the current user from the request's authenticated principal.
 /// </summary>
+/// <remarks>
+/// Identity comes only from the claims of the principal the authentication middleware
+/// validated (signature, issuer, audience, lifetime). Request headers never contribute
+/// identity: a header is whatever the caller chose to send, so reading a user, an access
+/// token or a profile from one would let any caller act as anyone.
+/// </remarks>
 [ExcludeFromCodeCoverage]
 public class CurrentUserService : ICurrentUserService
 {
+    /// <summary>Claim carrying the user's id. Without it the request has no user.</summary>
+    public const string IdClaim = "passportId";
+
     private readonly IHttpContextAccessor _httpContextAccessor;
 
     /// <summary>
@@ -25,141 +34,67 @@ public class CurrentUserService : ICurrentUserService
     }
 
     /// <summary>
-    /// Gets the current user's ID.
+    /// Gets the current user's ID, or an empty string when the request is not authenticated.
     /// </summary>
     public string UserId => User?.Id ?? string.Empty;
 
     /// <summary>
-    /// Gets the current user's information.
+    /// Gets the current user's information, or null when the request is not authenticated
+    /// or its principal carries no <see cref="IdClaim"/>.
     /// </summary>
-    public UserVM? User => GetPassportUserByToken();
-
-    public string? BearerToken { get; set; } = string.Empty;
+    public UserVM? User => FromPrincipal(_httpContextAccessor.HttpContext?.User);
 
     /// <summary>
-    /// Retrieves the current user's information from the access token or JWT token.
+    /// The bearer token presented in the <c>Authorization</c> header of an authenticated
+    /// request. Informational only — it is never used to establish identity.
     /// </summary>
-    /// <returns>The current user's information as a <see cref="UserVM"/> object, or null if not authenticated.</returns>
-    private UserVM? GetPassportUserByToken()
+    public string? BearerToken
     {
-        var context = _httpContextAccessor.HttpContext;
-        if (context?.User?.Identity?.IsAuthenticated ?? false)
+        get
         {
-            var headers = context.Request.Headers;
-            ExtractBearerToken(headers);
-            var decryptedToken = GetDecryptedToken(headers);
-            if (!string.IsNullOrWhiteSpace(decryptedToken))
-            {
-                return GetUserFromDecryptedToken(headers, decryptedToken);
-            }
-
-            var userHeader = headers["user"].ToString();
-            if (!string.IsNullOrWhiteSpace(userHeader))
-            {
-                return userHeader.JsonToObject<UserVM>();
-            }
-
-            return GetUserFromJwtToken(headers);
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// Extracts the bearer token from the request headers and assigns it to the BearerToken variable.
-    /// </summary>
-    /// <param name="headers">The request headers.</param>
-    private void ExtractBearerToken(IHeaderDictionary headers)
-    {
-        var token = headers["Authorization"].FirstOrDefault()?.Split(" ").LastOrDefault();
-        if (!string.IsNullOrWhiteSpace(token))
-        {
-            BearerToken = token;
+            var context = _httpContextAccessor.HttpContext;
+            if (context?.User?.Identity?.IsAuthenticated != true) return string.Empty;
+            var header = context.Request.Headers.Authorization.ToString();
+            const string scheme = "Bearer ";
+            return header.StartsWith(scheme, StringComparison.OrdinalIgnoreCase)
+                ? header[scheme.Length..].Trim()
+                : string.Empty;
         }
     }
 
     /// <summary>
-    /// Retrieves the decrypted token from the request headers.
+    /// Builds the user from an authenticated principal's claims. Returns null for an
+    /// unauthenticated principal or one without an id claim — the same answer as "nobody",
+    /// rather than a blank identity that would sign audit rows as no one.
     /// </summary>
-    /// <param name="headers">The request headers.</param>
-    /// <returns>The decrypted token as a string.</returns>
-    private static string GetDecryptedToken(IHeaderDictionary headers)
+    public static UserVM? FromPrincipal(ClaimsPrincipal? principal)
     {
-        var decryptedToken = headers["decrytedAccessToken"].ToString();
-        if (string.IsNullOrWhiteSpace(decryptedToken))
+        if (principal?.Identity?.IsAuthenticated != true) return null;
+
+        var id = Claim(principal, IdClaim);
+        if (string.IsNullOrWhiteSpace(id)) return null;
+
+        return new UserVM
         {
-            var accessToken = headers["accessToken"].ToString();
-            if (!string.IsNullOrWhiteSpace(accessToken))
-            {
-                decryptedToken = Helper.Decrypt(accessToken, "qtc".To16BytesHash(), "qtc".To16BytesHash());
-                headers["decrytedAccessToken"] = decryptedToken;
-            }
-        }
-        return decryptedToken;
+            Id = id,
+            // Profile decoration — never gates anything, so an absent claim is an empty field.
+            FirstName = Claim(principal, "firstName"),
+            LastName = Claim(principal, "lastName"),
+            Email = Claim(principal, "email"),
+            PhoneNumber = Claim(principal, "mobileNo"),
+        };
     }
 
     /// <summary>
-    /// Extracts the user information from the decrypted token.
+    /// Value of the first claim of this JWT claim type, or empty. The JWT bearer handler maps
+    /// some registered claim names to framework URIs on the way in (<c>email</c> becomes
+    /// <see cref="ClaimTypes.Email"/>), so the mapped name is consulted too.
     /// </summary>
-    /// <param name="headers">The request headers.</param>
-    /// <param name="decryptedToken">The decrypted token.</param>
-    /// <returns>The user information as a <see cref="UserVM"/> object, or null if not found.</returns>
-    private static UserVM? GetUserFromDecryptedToken(IHeaderDictionary headers, string decryptedToken)
+    private static string Claim(ClaimsPrincipal principal, string type)
     {
-        var json = decryptedToken.JsonToObject<AccessTokenVM>();
-        if (json?.user != null)
-        {
-            headers["user"] = json.user.GetJson();
-            return json.user;
-        }
-        return null;
+        var value = principal.FindFirst(type)?.Value;
+        if (value is null && JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.TryGetValue(type, out var mapped))
+            value = principal.FindFirst(mapped)?.Value;
+        return value ?? string.Empty;
     }
-
-    /// <summary>
-    /// Extracts the user information from the JWT token.
-    /// </summary>
-    /// <param name="headers">The request headers.</param>
-    /// <returns>The user information as a <see cref="UserVM"/> object, or null if not found.</returns>
-    private UserVM? GetUserFromJwtToken(IHeaderDictionary headers)
-    {
-        var token = headers["Authorization"].FirstOrDefault()?.Split(" ").LastOrDefault();
-        if (!string.IsNullOrWhiteSpace(token))
-        {
-            var tokenHandler = new JwtSecurityTokenHandler();
-            var jwtToken = tokenHandler.ReadToken(token) as JwtSecurityToken;
-
-            if (jwtToken != null)
-            {
-                // Read every claim defensively. These were First() calls, which threw
-                // InvalidOperationException on any absent claim — surfacing as HTTP 500
-                // rather than 401/403, from a method whose whole contract is "or null if
-                // not found". Worse, the throw only reached requests that RESOLVE the
-                // current user (anything writing an audit row), so a GET succeeded while
-                // the matching PUT 500'd on the identical token — which reads as a
-                // permissions problem and sends you hunting through roles.
-                var id = Claim(jwtToken, "passportId");
-
-                // No identity claim ⇒ we cannot say who this is. Fall through to null,
-                // the same result as an unauthenticated request, instead of inventing a
-                // blank-identity user that would sign audit rows as nobody.
-                if (string.IsNullOrWhiteSpace(id)) return null;
-
-                return new UserVM
-                {
-                    Id = id,
-                    // Profile decoration — never gates anything, so an absent claim is
-                    // an empty field rather than a failed request.
-                    FirstName = Claim(jwtToken, "firstName"),
-                    LastName = Claim(jwtToken, "lastName"),
-                    Email = Claim(jwtToken, "email"),
-                    PhoneNumber = Claim(jwtToken, "mobileNo")
-                };
-            }
-        }
-        return null;
-    }
-
-    /// <summary>Value of the first claim of this type, or empty when the token carries none.</summary>
-    private static string Claim(JwtSecurityToken token, string type)
-        => token.Claims.FirstOrDefault(c => c.Type == type)?.Value ?? string.Empty;
 }

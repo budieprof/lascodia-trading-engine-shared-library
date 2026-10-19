@@ -270,7 +270,9 @@ public static class DependencyInjection
 
     public static void RunAppPipeline<T, Db, IDb>(this WebApplication app, Func<IServiceScope, bool> calback) where IDb : IDbContext where Db : DbContext
     {
-        app.UseCors(options => options.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader());
+        // No CORS policy here: which origins may call an API is the host application's
+        // decision. A permissive policy registered by the shared pipeline would sit behind
+        // the host's own policy and answer every origin it did not.
         app.UseResponseCaching();
         app.UseRouting();
         app.UseAuthentication();
@@ -315,48 +317,6 @@ public static class DependencyInjection
                 configuration.GetConnectionString(connectionString) ?? "", s => s.CommandTimeout((int)TimeSpan.FromMinutes(10).TotalSeconds).MigrationsAssembly(typeof(T).Assembly.FullName).EnableRetryOnFailure());
     }
 
-
-    private static IEnumerable<IntegrationEvent> PreprocessAuditables(IDbContext context, IHttpContextAccessor httpContextAccessor)
-    {
-        var modifiedEntries = context.GetDbContext().ChangeTracker.Entries()
-            .Where(x => x.Entity is IAuditable
-                && (x.State == EntityState.Added || x.State == EntityState.Modified));
-        var token = httpContextAccessor?.HttpContext?.Request.Headers["Authorization"].FirstOrDefault()?.Split(" ").LastOrDefault();
-
-
-
-        var username = string.Empty;
-
-        if (!token.IsEmptyOrNull())
-        {
-            JwtSecurityTokenHandler tokenHandler = new JwtSecurityTokenHandler();
-            JwtSecurityToken? jwtToken = tokenHandler.ReadToken(token) as JwtSecurityToken;
-
-            username = jwtToken?.Claims.First(x => x.Type == "userName").Value;
-        }
-        DateTime now = DateTime.UtcNow;
-        foreach (var entry in modifiedEntries)
-        {
-            //var auditableEntity = entry.Entity as Entity<string>;
-
-            var modifiedProperties = entry.CurrentValues.Properties
-                        .Where(p => entry.CurrentValues[p.Name] != entry.OriginalValues[p.Name])
-                        .Select(p => p.Name).ToList();
-
-            var newData = new NameValueCollection();
-            var oldData = new NameValueCollection();
-
-            modifiedProperties.ForEach(s =>
-            {
-                newData[s] = entry.CurrentValues[s]?.ToString();
-                oldData[s] = entry.OriginalValues[s]?.ToString();
-            });
-
-            var evt = new DataChangeLogIntegrationEvent(entry.Entity.GetPropValue<string>("Id") ?? "", username ?? "", entry.Entity.GetType().ToString(), entry.State.ToString(), newData.GetJson(), oldData.GetJson(), now);
-
-            yield return evt;
-        }
-    }
 
     public static async Task<bool> SendDataToRebirthKafkaTopic(string topic, string bootstrapServer, string data, string username, string password)
     {
