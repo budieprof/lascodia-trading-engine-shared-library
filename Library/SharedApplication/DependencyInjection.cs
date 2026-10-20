@@ -211,7 +211,8 @@ public static class DependencyInjection
             var logger = s.GetRequiredService<ILogger<IntegrationEventService>>();
             var eventBus = s.GetRequiredService<IEventBus>();
             var eventService = s.GetRequiredService<IIntegrationEventLogService>();
-            return new IntegrationEventService(logger, eventBus, eventService, assembly.GetName().ToString());
+            return new IntegrationEventService(logger, eventBus, eventService, assembly.GetName().ToString(),
+                s.GetService<IIntegrationEventTenancy>());
         });
         services.AutoRegisterEventHandler(assembly);
         services.AutoRegisterBackgroundJobs(assembly);

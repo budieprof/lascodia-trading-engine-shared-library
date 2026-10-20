@@ -15,17 +15,20 @@ public class IntegrationEventService : IIntegrationEventService
     private readonly IEventBus _eventBus;
     private readonly IIntegrationEventLogService _eventLogService;
     private readonly ILogger<IntegrationEventService> _logger;
+    private readonly IIntegrationEventTenancy? _tenancy;
     private string? _appName;
 
     public IntegrationEventService(
         ILogger<IntegrationEventService> logger,
         IEventBus eventBus,
-        IIntegrationEventLogService integrationEventLogService, string appName)
+        IIntegrationEventLogService integrationEventLogService, string appName,
+        IIntegrationEventTenancy? tenancy = null)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _eventLogService = integrationEventLogService ?? throw new ArgumentNullException(nameof(integrationEventLogService));
         _eventBus = eventBus ?? throw new ArgumentNullException(nameof(eventBus));
         this._appName = appName;
+        _tenancy = tenancy;
     }
 
     private async Task PublishThroughEventBusAsync(IntegrationEvent evt)
@@ -98,6 +101,11 @@ public class IntegrationEventService : IIntegrationEventService
 
     public async Task SaveAndPublish(IDbContext _context, IntegrationEvent evt)
     {
+        // The event belongs to the publishing work's tenant unless the publisher said otherwise; stamped before the
+        // outbox row is written, so a retried publish carries it too.
+        if (evt.TenantId is null && _tenancy?.CurrentTenantId is { } tenantId)
+            evt.TenantId = tenantId;
+
         await SaveEventAndContextChangesAsync(_context,evt);
     }
 }

@@ -269,7 +269,9 @@ public class EventBusKafka : IEventBus, IDisposable
                     {
                         using dynamic eventData = JsonDocument.Parse(message);
                         await Task.Yield();
-                        await dynamicHandler.Handle(eventData);
+                        // The handler runs in the event's tenant (a platform scope for an event without one).
+                        using (IntegrationEventTenancy.BeginHandlerScope(_serviceProvider, IntegrationEventTenancy.ReadTenantId(message), eventName))
+                            await dynamicHandler.Handle(eventData);
                     }
                 }
                 else
@@ -282,7 +284,9 @@ public class EventBusKafka : IEventBus, IDisposable
                     var method = concreteType.GetMethod("Handle");
                     if (method != null)
                     {
-                        await (Task)method.Invoke(handler, new object[] { integrationEvent! });
+                        // The handler runs in the event's tenant (a platform scope for an event without one).
+                        using (IntegrationEventTenancy.BeginHandlerScope(_serviceProvider, (integrationEvent as IntegrationEvent)?.TenantId, eventName))
+                            await (Task)method.Invoke(handler, new object[] { integrationEvent! });
                     }
                 }
             }
