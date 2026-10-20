@@ -268,7 +268,19 @@ public static class DependencyInjection
         });
     }
 
-    public static void RunAppPipeline<T, Db, IDb>(this WebApplication app, Func<IServiceScope, bool> calback) where IDb : IDbContext where Db : DbContext
+    /// <param name="app">The host application.</param>
+    /// <param name="calback">Startup work run in a service scope before the host starts serving.</param>
+    /// <param name="migrateDatabase">
+    /// Apply <typeparamref name="Db"/>'s migrations with the context resolved from the container before
+    /// <paramref name="calback"/> runs. A host that migrates with a different connection (the schema owner rather
+    /// than its runtime login), or in only one of several processes, passes false and migrates itself.
+    /// </param>
+    /// <param name="configureHealthEndpoint">Extra conventions (metadata, policies) for the <c>/health</c> endpoint.</param>
+    public static void RunAppPipeline<T, Db, IDb>(
+        this WebApplication app,
+        Func<IServiceScope, bool> calback,
+        bool migrateDatabase = true,
+        Action<IEndpointConventionBuilder>? configureHealthEndpoint = null) where IDb : IDbContext where Db : DbContext
     {
         // No CORS policy here: which origins may call an API is the host application's
         // decision. A permissive policy registered by the shared pipeline would sit behind
@@ -277,13 +289,15 @@ public static class DependencyInjection
         app.UseRouting();
         app.UseAuthentication();
         app.UseAuthorization();
-        app.MapHealthChecks("/health");
+        var health = app.MapHealthChecks("/health");
+        configureHealthEndpoint?.Invoke(health);
         app.UseMiddleware<ValidationExceptionHandlerMiddleware>();
         app.MapControllers().RequireAuthorization("apiScope");
 
         using (var services = app.Services.CreateScope())
         {
-            services.DbMigrate<T, Db, IDb>();
+            if (migrateDatabase)
+                services.DbMigrate<T, Db, IDb>();
             calback(services);
         }
 
